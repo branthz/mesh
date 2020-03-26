@@ -1,4 +1,4 @@
-module github.com/weaveworks/mesh
+module github.com/branthz/mesh
 
 go 1.12
 
