@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/weaveworks/mesh"
+	"github.com/branthz/mesh"
 )
 
 func TestStateMergeReceived(t *testing.T) {

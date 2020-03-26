@@ -5,7 +5,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/weaveworks/mesh"
+	"github.com/branthz/mesh"
 )
 
 var (

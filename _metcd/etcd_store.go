@@ -15,7 +15,7 @@ import (
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
-	"github.com/weaveworks/mesh"
+	"github.com/branthz/mesh"
 	"golang.org/x/net/context"
 )
 

@@ -4,7 +4,7 @@ package mesh_test
 
 import (
 	"github.com/stretchr/testify/require"
-	"github.com/weaveworks/mesh"
+	"github.com/branthz/mesh"
 	"testing"
 )
 

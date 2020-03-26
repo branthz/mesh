@@ -9,8 +9,8 @@ import (
 
 	"github.com/coreos/etcd/raft/raftpb"
 
-	"github.com/weaveworks/mesh"
-	"github.com/weaveworks/mesh/meshconn"
+	"github.com/branthz/mesh"
+	"github.com/branthz/mesh/meshconn"
 )
 
 func TestCtrlTerminates(t *testing.T) {
