@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -15,7 +14,16 @@ import (
 	"syscall"
 
 	"github.com/branthz/mesh"
+	"github.com/branthz/utarrow/lib/log"
 )
+
+func init() {
+	err := log.Setup("./xxx.log", "debug")
+	if err != nil {
+		fmt.Println("init:", err)
+		os.Exit(-1)
+	}
+}
 
 func main() {
 	peers := &stringset{}
@@ -29,8 +37,6 @@ func main() {
 	)
 	flag.Var(peers, "peer", "initial peer (may be repeated)")
 	flag.Parse()
-
-	logger := log.New(os.Stderr, *nickname+"> ", log.LstdFlags)
 
 	host, portStr, err := net.SplitHostPort(*meshListen)
 	if err != nil {
