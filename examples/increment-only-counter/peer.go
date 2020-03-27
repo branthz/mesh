@@ -1,12 +1,11 @@
 package main
 
 import (
-	"log"
-
 	"bytes"
 	"encoding/gob"
 
 	"github.com/branthz/mesh"
+	"github.com/branthz/utarrow/lib/log"
 )
 
 // Peer encapsulates state and implements mesh.Gossiper.
@@ -18,7 +17,6 @@ type peer struct {
 	send    mesh.Gossip
 	actions chan<- func()
 	quit    chan struct{}
-	logger  *log.Logger
 }
 
 // peer implements mesh.Gossiper.
@@ -27,14 +25,13 @@ var _ mesh.Gossiper = &peer{}
 // Construct a peer with empty state.
 // Be sure to register a channel, later,
 // so we can make outbound communication.
-func newPeer(self mesh.PeerName, logger *log.Logger) *peer {
+func newPeer(self mesh.PeerName) *peer {
 	actions := make(chan func())
 	p := &peer{
 		st:      newState(self),
 		send:    nil, // must .register() later
 		actions: actions,
 		quit:    make(chan struct{}),
-		logger:  logger,
 	}
 	go p.loop(actions)
 	return p
@@ -70,7 +67,7 @@ func (p *peer) incr() (result int) {
 		if p.send != nil {
 			p.send.GossipBroadcast(st)
 		} else {
-			p.logger.Printf("no sender configured; not broadcasting update right now")
+			log.Info("no sender configured; not broadcasting update right now")
 		}
 		result = st.get()
 	}
@@ -85,7 +82,7 @@ func (p *peer) stop() {
 // Return a copy of our complete state.
 func (p *peer) Gossip() (complete mesh.GossipData) {
 	complete = p.st.copy()
-	p.logger.Printf("Gossip => complete %v", complete.(*state).set)
+	log.Info("Gossip => complete %v", complete.(*state).set)
 	return complete
 }
 
@@ -99,9 +96,9 @@ func (p *peer) OnGossip(buf []byte) (delta mesh.GossipData, err error) {
 
 	delta = p.st.mergeDelta(set)
 	if delta == nil {
-		p.logger.Printf("OnGossip %v => delta %v", set, delta)
+		log.Info("OnGossip %v => delta %v", set, delta)
 	} else {
-		p.logger.Printf("OnGossip %v => delta %v", set, delta.(*state).set)
+		log.Info("OnGossip %v => delta %v", set, delta.(*state).set)
 	}
 	return delta, nil
 }
@@ -116,9 +113,9 @@ func (p *peer) OnGossipBroadcast(src mesh.PeerName, buf []byte) (received mesh.G
 
 	received = p.st.mergeReceived(set)
 	if received == nil {
-		p.logger.Printf("OnGossipBroadcast %s %v => delta %v", src, set, received)
+		log.Info("OnGossipBroadcast %s %v => delta %v", src, set, received)
 	} else {
-		p.logger.Printf("OnGossipBroadcast %s %v => delta %v", src, set, received.(*state).set)
+		log.Info("OnGossipBroadcast %s %v => delta %v", src, set, received.(*state).set)
 	}
 	return received, nil
 }
@@ -131,6 +128,6 @@ func (p *peer) OnGossipUnicast(src mesh.PeerName, buf []byte) error {
 	}
 
 	complete := p.st.mergeComplete(set)
-	p.logger.Printf("OnGossipUnicast %s %v => complete %v", src, set, complete)
+	log.Info("OnGossipUnicast %s %v => complete %v", src, set, complete)
 	return nil
 }

@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"time"
+
+	"github.com/branthz/utarrow/lib/log"
 )
 
 // Connection describes a link between peers.
@@ -74,12 +76,11 @@ type LocalConnection struct {
 	errorChan       chan<- error
 	finished        <-chan struct{} // closed to signal that actorLoop has finished
 	senders         *gossipSenders
-	logger          Logger
 }
 
 // If the connection is successful, it will end up in the local peer's
 // connections map.
-func startLocalConnection(connRemote *remoteConnection, tcpConn *net.TCPConn, router *Router, acceptNewPeer bool, logger Logger) {
+func startLocalConnection(connRemote *remoteConnection, tcpConn *net.TCPConn, router *Router, acceptNewPeer bool) {
 	if connRemote.local != router.Ourself.Peer {
 		panic("attempt to create local connection from a peer which is not ourself")
 	}
@@ -93,7 +94,6 @@ func startLocalConnection(connRemote *remoteConnection, tcpConn *net.TCPConn, ro
 		uid:              randUint64(),
 		errorChan:        errorChan,
 		finished:         finished,
-		logger:           logger,
 	}
 	conn.senders = newGossipSenders(conn, finished)
 	go conn.run(errorChan, finished, acceptNewPeer)
@@ -101,7 +101,7 @@ func startLocalConnection(connRemote *remoteConnection, tcpConn *net.TCPConn, ro
 
 func (conn *LocalConnection) logf(format string, args ...interface{}) {
 	format = "->[" + conn.remoteTCPAddr + "|" + conn.remote.String() + "]: " + format
-	conn.logger.Printf(format, args...)
+	log.Debug(format, args...)
 }
 
 func (conn *LocalConnection) breakTie(dupConn ourConnection) connectionTieBreak {
@@ -369,14 +369,14 @@ func (conn *LocalConnection) actorLoop(errorChan <-chan error) (err error) {
 
 func (conn *LocalConnection) teardown(err error) {
 	if conn.remote == nil {
-		conn.logger.Printf("->[%s] connection shutting down due to error during handshake: %v", conn.remoteTCPAddr, err)
+		log.Debug("->[%s] connection shutting down due to error during handshake: %v", conn.remoteTCPAddr, err)
 	} else {
 		conn.logf("connection shutting down due to error: %v", err)
 	}
 
 	if conn.tcpConn != nil {
 		if closeErr := conn.tcpConn.Close(); closeErr != nil {
-			conn.logger.Printf("warning: %v", closeErr)
+			log.Info("warning: %v", closeErr)
 		}
 	}
 

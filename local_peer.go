@@ -89,7 +89,7 @@ func (peer *localPeer) ConnectionsTo(names []PeerName) []Connection {
 // createConnection creates a new connection, originating from
 // localAddr, to peerAddr. If acceptNewPeer is false, peerAddr must
 // already be a member of the mesh.
-func (peer *localPeer) createConnection(localAddr string, peerAddr string, acceptNewPeer bool, logger Logger) error {
+func (peer *localPeer) createConnection(localAddr string, peerAddr string, acceptNewPeer bool) error {
 	if err := peer.checkConnectionLimit(); err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (peer *localPeer) createConnection(localAddr string, peerAddr string, accep
 		return err
 	}
 	connRemote := newRemoteConnection(peer.Peer, nil, peerAddr, true, false)
-	startLocalConnection(connRemote, tcpConn, peer.router, acceptNewPeer, logger)
+	startLocalConnection(connRemote, tcpConn, peer.router, acceptNewPeer)
 	return nil
 }
 

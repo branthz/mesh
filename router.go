@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/branthz/utarrow/lib/log"
 )
 
 var (
@@ -54,11 +56,10 @@ type Router struct {
 	gossipChannels  gossipChannels
 	topologyGossip  Gossip
 	acceptLimiter   *tokenBucket
-	logger          Logger
 }
 
 // NewRouter returns a new router. It must be started.
-func NewRouter(config Config, name PeerName, nickName string, overlay Overlay, logger Logger) (*Router, error) {
+func NewRouter(config Config, name PeerName, nickName string, overlay Overlay) (*Router, error) {
 	router := &Router{Config: config, gossipChannels: make(gossipChannels)}
 
 	if overlay == nil {
@@ -69,11 +70,10 @@ func NewRouter(config Config, name PeerName, nickName string, overlay Overlay, l
 	router.Ourself = newLocalPeer(name, nickName, router)
 	router.Peers = newPeers(router.Ourself)
 	router.Peers.OnGC(func(peer *Peer) {
-		logger.Printf("Removed unreachable peer %s", peer)
+		log.Info("Removed unreachable peer %s", peer)
 	})
 	router.Routes = newRoutes(router.Ourself, router.Peers)
-	router.ConnectionMaker = newConnectionMaker(router.Ourself, router.Peers, net.JoinHostPort(router.Host, "0"), router.Port, router.PeerDiscovery, logger)
-	router.logger = logger
+	router.ConnectionMaker = newConnectionMaker(router.Ourself, router.Peers, net.JoinHostPort(router.Host, "0"), router.Port, router.PeerDiscovery)
 	gossip, err := router.NewGossip("topology", router)
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (router *Router) listenTCP() {
 		for {
 			tcpConn, err := ln.AcceptTCP()
 			if err != nil {
-				router.logger.Printf("%v", err)
+				log.Debug("%v", err)
 				continue
 			}
 			router.acceptTCP(tcpConn)
@@ -125,16 +125,16 @@ func (router *Router) listenTCP() {
 
 func (router *Router) acceptTCP(tcpConn *net.TCPConn) {
 	remoteAddrStr := tcpConn.RemoteAddr().String()
-	router.logger.Printf("->[%s] connection accepted", remoteAddrStr)
+	log.Debug("->[%s] connection accepted", remoteAddrStr)
 	connRemote := newRemoteConnection(router.Ourself.Peer, nil, remoteAddrStr, false, false)
-	startLocalConnection(connRemote, tcpConn, router, true, router.logger)
+	startLocalConnection(connRemote, tcpConn, router, true)
 }
 
 // NewGossip returns a usable GossipChannel from the router.
 //
 // TODO(pb): rename?
 func (router *Router) NewGossip(channelName string, g Gossiper) (Gossip, error) {
-	channel := newGossipChannel(channelName, router.Ourself, router.Routes, g, router.logger)
+	channel := newGossipChannel(channelName, router.Ourself, router.Routes, g)
 	router.gossipLock.Lock()
 	defer router.gossipLock.Unlock()
 	if _, found := router.gossipChannels[channelName]; found {
@@ -156,7 +156,7 @@ func (router *Router) gossipChannel(channelName string) *gossipChannel {
 	if channel, found = router.gossipChannels[channelName]; found {
 		return channel
 	}
-	channel = newGossipChannel(channelName, router.Ourself, router.Routes, &surrogateGossiper{router: router}, router.logger)
+	channel = newGossipChannel(channelName, router.Ourself, router.Routes, &surrogateGossiper{router: router})
 	channel.logf("created surrogate channel")
 	router.gossipChannels[channelName] = channel
 	return channel
@@ -289,7 +289,7 @@ func (router *Router) trusts(remote *remoteConnection) bool {
 		}
 	} else {
 		// Should not happen as remoteTCPAddr was obtained from TCPConn
-		router.logger.Printf("Unable to parse remote TCP addr: %s", err)
+		log.Debug("Unable to parse remote TCP addr: %s", err)
 	}
 	return false
 }

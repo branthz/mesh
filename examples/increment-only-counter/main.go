@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -40,16 +39,16 @@ func main() {
 
 	host, portStr, err := net.SplitHostPort(*meshListen)
 	if err != nil {
-		logger.Fatalf("mesh address: %s: %v", *meshListen, err)
+		log.Fatal("mesh address: %s: %v", *meshListen, err)
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		logger.Fatalf("mesh address: %s: %v", *meshListen, err)
+		log.Fatal("mesh address: %s: %v", *meshListen, err)
 	}
 
 	name, err := mesh.PeerNameFromString(*hwaddr)
 	if err != nil {
-		logger.Fatalf("%s: %v", *hwaddr, err)
+		log.Fatal("%s: %v", *hwaddr, err)
 	}
 
 	router, err := mesh.NewRouter(mesh.Config{
@@ -60,26 +59,26 @@ func main() {
 		ConnLimit:          64,
 		PeerDiscovery:      true,
 		TrustedSubnets:     []*net.IPNet{},
-	}, name, *nickname, mesh.NullOverlay{}, log.New(ioutil.Discard, "", 0))
+	}, name, *nickname, mesh.NullOverlay{})
 
 	if err != nil {
-		logger.Fatalf("Could not create router: %v", err)
+		log.Fatal("Could not create router: %v", err)
 	}
 
-	peer := newPeer(name, logger)
+	peer := newPeer(name)
 	gossip, err := router.NewGossip(*channel, peer)
 	if err != nil {
-		logger.Fatalf("Could not create gossip: %v", err)
+		log.Fatal("Could not create gossip: %v", err)
 	}
 
 	peer.register(gossip)
 
 	func() {
-		logger.Printf("mesh router starting (%s)", *meshListen)
+		log.Info("mesh router starting (%s)", *meshListen)
 		router.Start()
 	}()
 	defer func() {
-		logger.Printf("mesh router stopping")
+		log.Info("mesh router stopping")
 		router.Stop()
 	}()
 
@@ -92,11 +91,11 @@ func main() {
 		errs <- fmt.Errorf("%s", <-c)
 	}()
 	go func() {
-		logger.Printf("HTTP server starting (%s)", *httpListen)
+		log.Info("HTTP server starting (%s)", *httpListen)
 		http.HandleFunc("/", handle(peer))
 		errs <- http.ListenAndServe(*httpListen, nil)
 	}()
-	logger.Print(<-errs)
+	log.Infoln(<-errs)
 }
 
 type counter interface {

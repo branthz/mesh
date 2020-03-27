@@ -37,13 +37,12 @@ type Peer struct {
 	recv    chan pkt
 	actions chan func()
 	quit    chan struct{}
-	logger  mesh.Logger
 }
 
 // NewPeer returns a Peer, which can be used as a net.PacketConn.
 // Clients must Register a mesh.Gossip before calling ReadFrom or WriteTo.
 // Clients should aggressively consume from ReadFrom.
-func NewPeer(name mesh.PeerName, uid mesh.PeerUID, logger mesh.Logger) *Peer {
+func NewPeer(name mesh.PeerName, uid mesh.PeerUID) *Peer {
 	p := &Peer{
 		name:    name,
 		uid:     uid,
@@ -51,7 +50,6 @@ func NewPeer(name mesh.PeerName, uid mesh.PeerUID, logger mesh.Logger) *Peer {
 		recv:    make(chan pkt),
 		actions: make(chan func()),
 		quit:    make(chan struct{}),
-		logger:  logger,
 	}
 	go p.loop()
 	return p

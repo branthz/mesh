@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+
+	"github.com/branthz/utarrow/lib/log"
 )
 
 // gossipChannel is a logical communication channel within a physical mesh.
@@ -12,18 +14,16 @@ type gossipChannel struct {
 	ourself  *localPeer
 	routes   *routes
 	gossiper Gossiper
-	logger   Logger
 }
 
 // newGossipChannel returns a named, usable channel.
 // It delegates receiving duties to the passed Gossiper.
-func newGossipChannel(channelName string, ourself *localPeer, r *routes, g Gossiper, logger Logger) *gossipChannel {
+func newGossipChannel(channelName string, ourself *localPeer, r *routes, g Gossiper) *gossipChannel {
 	return &gossipChannel{
 		name:     channelName,
 		ourself:  ourself,
 		routes:   r,
 		gossiper: g,
-		logger:   logger,
 	}
 }
 
@@ -142,7 +142,7 @@ func (c *gossipChannel) makeBroadcastMsg(srcName PeerName, msg []byte) protocolM
 
 func (c *gossipChannel) logf(format string, args ...interface{}) {
 	format = "[gossip " + c.name + "]: " + format
-	c.logger.Printf(format, args...)
+	log.Info(format, args...)
 }
 
 // GobEncode gob-encodes each item and returns the resulting byte slice.

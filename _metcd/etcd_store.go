@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/branthz/utarrow/lib/log"
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/lease"
 	"github.com/coreos/etcd/mvcc"
@@ -15,7 +16,6 @@ import (
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/coreos/etcd/raft/raftpb"
 	"github.com/gogo/protobuf/proto"
-	"github.com/branthz/mesh"
 	"golang.org/x/net/context"
 )
 
@@ -30,7 +30,6 @@ type etcdStore struct {
 	actionc     chan func()
 	quitc       chan struct{}
 	terminatedc chan struct{}
-	logger      mesh.Logger
 
 	dbPath string // please os.RemoveAll on exit
 	kv     mvcc.KV
@@ -48,7 +47,6 @@ func newEtcdStore(
 	snapshotc <-chan raftpb.Snapshot,
 	entryc <-chan raftpb.Entry,
 	confentryc chan<- raftpb.Entry,
-	logger mesh.Logger,
 ) *etcdStore {
 	// It would be much better if we could have a proper in-memory backend. Alas:
 	// backend.Backend is tightly coupled to bolt.DB, and both are tightly coupled
@@ -60,7 +58,7 @@ func newEtcdStore(
 	}
 	dbPath := f.Name()
 	f.Close()
-	logger.Printf("etcd store: using %s", dbPath)
+	log.Debug("etcd store: using %s", dbPath)
 
 	b := backend.NewDefaultBackend(dbPath)
 	lessor := lease.NewLessor(b)
@@ -75,7 +73,6 @@ func newEtcdStore(
 		actionc:     make(chan func()),
 		quitc:       make(chan struct{}),
 		terminatedc: make(chan struct{}),
-		logger:      logger,
 
 		dbPath: dbPath,
 		kv:     kv,
@@ -248,12 +245,12 @@ func (s *etcdStore) loop() {
 		select {
 		case snapshot := <-s.snapshotc:
 			if err := s.applySnapshot(snapshot); err != nil {
-				s.logger.Printf("etcd store: apply snapshot: %v", err)
+				log.Info("etcd store: apply snapshot: %v", err)
 			}
 
 		case entry := <-s.entryc:
 			if err := s.applyCommittedEntry(entry); err != nil {
-				s.logger.Printf("etcd store: apply committed entry: %v", err)
+				log.Info("etcd store: apply committed entry: %v", err)
 			}
 
 		case f := <-s.actionc:
@@ -272,13 +269,12 @@ func (s *etcdStore) stop() {
 
 func (s *etcdStore) applySnapshot(snapshot raftpb.Snapshot) error {
 	if len(snapshot.Data) == 0 {
-		//s.logger.Printf("etcd store: apply snapshot with empty snapshot; skipping")
 		return nil
 	}
 
-	s.logger.Printf("etcd store: applying snapshot: size %d", len(snapshot.Data))
-	s.logger.Printf("etcd store: applying snapshot: metadata %s", snapshot.Metadata.String())
-	s.logger.Printf("etcd store: applying snapshot: TODO") // TODO(pb)
+	log.Info("etcd store: applying snapshot: size %d", len(snapshot.Data))
+	log.Info("etcd store: applying snapshot: metadata %s", snapshot.Metadata.String())
+	log.Infoln("etcd store: applying snapshot: TODO") // TODO(pb)
 
 	return nil
 }
@@ -297,29 +293,29 @@ func (s *etcdStore) applyCommittedEntry(entry raftpb.Entry) error {
 	case raftpb.EntryNormal:
 		break
 	case raftpb.EntryConfChange:
-		s.logger.Printf("etcd store: forwarding ConfChange entry")
+		log.Infoln("etcd store: forwarding ConfChange entry")
 		s.confentryc <- entry
 		return nil
 	default:
-		s.logger.Printf("etcd store: got unknown entry type %s", entry.Type)
+		log.Info("etcd store: got unknown entry type %s", entry.Type)
 		return fmt.Errorf("unknown entry type %d", entry.Type)
 	}
 
 	// entry.Size can be nonzero when len(entry.Data) == 0
 	if len(entry.Data) <= 0 {
-		s.logger.Printf("etcd store: got empty committed entry (term %d, index %d, type %s); skipping", entry.Term, entry.Index, entry.Type)
+		log.Info("etcd store: got empty committed entry (term %d, index %d, type %s); skipping", entry.Term, entry.Index, entry.Type)
 		return nil
 	}
 
 	var req etcdserverpb.InternalRaftRequest
 	if err := req.Unmarshal(entry.Data); err != nil {
-		s.logger.Printf("etcd store: unmarshaling entry data: %v", err)
+		log.Erro("etcd store: unmarshaling entry data: %v", err)
 		return err
 	}
 
 	msg, err := s.applyInternalRaftRequest(req)
 	if err != nil {
-		s.logger.Printf("etcd store: applying internal Raft request %d: %v", req.ID, err)
+		log.Error("etcd store: applying internal Raft request %d: %v", req.ID, err)
 		s.cancelPending(req.ID, err)
 		return err
 	}
@@ -399,7 +395,7 @@ func (s *etcdStore) signalPending(id uint64, msg proto.Message) {
 func (s *etcdStore) cancelPending(id uint64, err error) {
 	rc, ok := s.pending[id]
 	if !ok {
-		s.logger.Printf("etcd store: cancel pending ID %d, but nothing was pending; strange", id)
+		log.Error("etcd store: cancel pending ID %d, but nothing was pending; strange", id)
 		return
 	}
 	rc.errc <- err
@@ -407,9 +403,9 @@ func (s *etcdStore) cancelPending(id uint64, err error) {
 }
 
 func (s *etcdStore) removeDB() {
-	s.logger.Printf("etcd store: removing tmp DB %s", s.dbPath)
+	log.Info("etcd store: removing tmp DB %s", s.dbPath)
 	if err := os.RemoveAll(s.dbPath); err != nil {
-		s.logger.Printf("etcd store: removing tmp DB %s: %v", s.dbPath, err)
+		log.Error("etcd store: removing tmp DB %s: %v", s.dbPath, err)
 	}
 }
 

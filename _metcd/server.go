@@ -6,12 +6,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/branthz/mesh"
+	"github.com/branthz/mesh/meshconn"
+	"github.com/branthz/utarrow/lib/log"
 	"github.com/coreos/etcd/etcdserver/etcdserverpb"
 	"github.com/coreos/etcd/raft/raftpb"
 	"google.golang.org/grpc"
-
-	"github.com/branthz/mesh"
-	"github.com/branthz/mesh/meshconn"
 )
 
 // Server collects the etcd V3 server interfaces that we implement.
@@ -48,10 +48,9 @@ func NewServer(
 	minPeerCount int,
 	terminatec <-chan struct{},
 	terminatedc chan<- error,
-	logger mesh.Logger,
 ) Server {
 	c := make(chan Server)
-	go serverManager(router, peer, minPeerCount, terminatec, terminatedc, logger, c)
+	go serverManager(router, peer, minPeerCount, terminatec, terminatedc, c)
 	return <-c
 }
 
@@ -62,7 +61,6 @@ func NewDefaultServer(
 	minPeerCount int,
 	terminatec <-chan struct{},
 	terminatedc chan<- error,
-	logger mesh.Logger,
 ) Server {
 	var (
 		peerName = mustPeerName()
@@ -80,10 +78,10 @@ func NewDefaultServer(
 		ConnLimit:          64,
 		PeerDiscovery:      true,
 		TrustedSubnets:     []*net.IPNet{},
-	}, peerName, nickName, mesh.NullOverlay{}, logger)
+	}, peerName, nickName, mesh.NullOverlay{})
 
 	// Create a meshconn.Peer and connect it to a channel.
-	peer := meshconn.NewPeer(router.Ourself.Peer.Name, router.Ourself.UID, logger)
+	peer := meshconn.NewPeer(router.Ourself.Peer.Name, router.Ourself.UID)
 	gossip := router.NewGossip(channel, peer)
 	peer.Register(gossip)
 
@@ -93,7 +91,7 @@ func NewDefaultServer(
 	// TODO(pb): determine if this is a super huge problem
 	router.Start()
 
-	return NewServer(router, peer, minPeerCount, terminatec, terminatedc, logger)
+	return NewServer(router, peer, minPeerCount, terminatec, terminatedc)
 }
 
 func serverManager(
@@ -102,7 +100,6 @@ func serverManager(
 	minPeerCount int,
 	terminatec <-chan struct{},
 	terminatedc chan<- error,
-	logger mesh.Logger,
 	out chan<- Server,
 ) {
 	// Identify mesh peers to either create or join a cluster.
@@ -119,14 +116,14 @@ func serverManager(
 			others = append(others, meshconn.MeshAddr{PeerName: desc.Name, PeerUID: desc.UID})
 		}
 		if len(others) == minPeerCount {
-			logger.Printf("detected %d peers; creating", len(others))
+			log.Info("detected %d peers; creating", len(others))
 			break
 		} else if len(others) > minPeerCount {
-			logger.Printf("detected %d peers; joining", len(others))
+			log.Info("detected %d peers; joining", len(others))
 			others = others[:0] // empty others slice means join
 			break
 		}
-		logger.Printf("detected %d peers; waiting...", len(others))
+		log.Debug("detected %d peers; waiting...", len(others))
 		time.Sleep(time.Second)
 	}
 
@@ -149,26 +146,26 @@ func serverManager(
 		addc = make(chan uint64)
 		remc = make(chan uint64)
 	)
-	m := newMembership(router, membershipSet(router), minPeerCount, addc, remc, shrunkc, logger)
+	m := newMembership(router, membershipSet(router), minPeerCount, addc, remc, shrunkc)
 	defer m.stop()
 
 	// Create the thing that converts mesh membership changes to Raft ConfChange
 	// proposals.
-	c := newConfigurator(addc, remc, confchangec, confentryc, logger)
+	c := newConfigurator(addc, remc, confchangec, confentryc)
 	defer c.stop()
 
 	// Create a packet transport, wrapping the meshconn.Peer.
-	transport := newPacketTransport(peer, translateVia(router), incomingc, outgoingc, unreachablec, logger)
+	transport := newPacketTransport(peer, translateVia(router), incomingc, outgoingc, unreachablec)
 	defer transport.stop()
 
 	// Create the API server. store.stop must go on the defer stack before
 	// ctrl.stop so that the ctrl stops first. Otherwise, ctrl can deadlock
 	// processing the last tick.
-	store := newEtcdStore(proposalc, snapshotc, entryc, confentryc, logger)
+	store := newEtcdStore(proposalc, snapshotc, entryc, confentryc)
 	defer store.stop()
 
 	// Create the controller, which drives the Raft node internally.
-	ctrl := newCtrl(self, others, minPeerCount, incomingc, outgoingc, unreachablec, confchangec, snapshotc, entryc, proposalc, removedc, logger)
+	ctrl := newCtrl(self, others, minPeerCount, incomingc, outgoingc, unreachablec, confchangec, snapshotc, entryc, proposalc, removedc)
 	defer ctrl.stop()
 
 	// Return the store to the client.

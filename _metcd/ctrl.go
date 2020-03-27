@@ -3,17 +3,15 @@ package metcd
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"time"
 
+	"github.com/branthz/mesh/meshconn"
+	"github.com/branthz/utarrow/lib/log"
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
 	"golang.org/x/net/context"
-
-	"github.com/branthz/mesh"
-	"github.com/branthz/mesh/meshconn"
 )
 
 // +-------------+   +-----------------+               +-------------------------+   +-------+
@@ -55,7 +53,6 @@ type ctrl struct {
 	terminatedc  chan struct{}
 	storage      *raft.MemoryStorage
 	node         raft.Node
-	logger       mesh.Logger
 }
 
 func newCtrl(
@@ -70,11 +67,8 @@ func newCtrl(
 	entryc chan<- raftpb.Entry,
 	proposalc <-chan []byte,
 	removedc chan<- struct{},
-	logger mesh.Logger,
 ) *ctrl {
 	storage := raft.NewMemoryStorage()
-	raftLogger := &raft.DefaultLogger{Logger: log.New(ioutil.Discard, "", 0)}
-	raftLogger.EnableDebug()
 	nodeConfig := &raft.Config{
 		ID:              makeRaftPeer(self).ID,
 		ElectionTick:    10,
@@ -84,7 +78,6 @@ func newCtrl(
 		MaxSizePerMsg:   4096, // TODO(pb): looks like bytes; confirm that
 		MaxInflightMsgs: 256,  // TODO(pb): copied from docs; confirm that
 		CheckQuorum:     true, // leader steps down if quorum is not active for an electionTimeout
-		Logger:          raftLogger,
 	}
 
 	startPeers := makeRaftPeers(others)
@@ -108,7 +101,6 @@ func newCtrl(
 		terminatedc:  make(chan struct{}),
 		storage:      storage,
 		node:         node,
-		logger:       logger,
 	}
 	go c.driveRaft() // analagous to raftexample serveChannels
 	return c
@@ -121,7 +113,7 @@ func (c *ctrl) stop() {
 }
 
 func (c *ctrl) driveRaft() {
-	defer c.logger.Printf("ctrl: driveRaft loop exit")
+	defer log.Infoln("ctrl: driveRaft loop exit")
 	defer close(c.terminatedc)
 	defer c.node.Stop()
 
@@ -151,7 +143,7 @@ func (c *ctrl) driveRaft() {
 
 		case r := <-c.node.Ready():
 			if err := c.handleReady(r); err != nil {
-				c.logger.Printf("ctrl: handle ready: %v (aborting)", err)
+				log.Debug("ctrl: handle ready: %v (aborting)", err)
 				close(c.removedc)
 				return
 			}
@@ -163,14 +155,14 @@ func (c *ctrl) driveRaft() {
 			c.node.ReportUnreachable(id)
 
 		case <-c.stopc:
-			c.logger.Printf("ctrl: got stop signal")
+			log.Debugln("ctrl: got stop signal")
 			return
 		}
 	}
 }
 
 func (c *ctrl) driveProposals(cancel <-chan struct{}) {
-	defer c.logger.Printf("ctrl: driveProposals loop exit")
+	defer log.Debugln("ctrl: driveProposals loop exit")
 
 	// driveProposals is a separate goroutine from driveRaft, to mirror
 	// contrib/raftexample. To be honest, it's not clear to me why that should be
@@ -182,7 +174,7 @@ func (c *ctrl) driveProposals(cancel <-chan struct{}) {
 		select {
 		case data, ok := <-c.proposalc:
 			if !ok {
-				c.logger.Printf("ctrl: got nil proposal; shutting down proposals")
+				log.Debugln("ctrl: got nil proposal; shutting down proposals")
 				c.proposalc = nil
 				continue
 			}
@@ -190,11 +182,11 @@ func (c *ctrl) driveProposals(cancel <-chan struct{}) {
 
 		case cc, ok := <-c.confchangec:
 			if !ok {
-				c.logger.Printf("ctrl: got nil conf change; shutting down conf changes")
+				log.Debugln("ctrl: got nil conf change; shutting down conf changes")
 				c.confchangec = nil
 				continue
 			}
-			c.logger.Printf("ctrl: ProposeConfChange %s %x", cc.Type, cc.NodeID)
+			log.Info("ctrl: ProposeConfChange %s %x", cc.Type, cc.NodeID)
 			c.node.ProposeConfChange(context.TODO(), cc)
 
 		case <-cancel:

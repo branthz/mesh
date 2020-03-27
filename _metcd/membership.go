@@ -3,9 +3,9 @@ package metcd
 import (
 	"time"
 
-	"github.com/coreos/etcd/raft/raftpb"
-
 	"github.com/branthz/mesh"
+	"github.com/branthz/utarrow/lib/log"
+	"github.com/coreos/etcd/raft/raftpb"
 )
 
 // membership regularly polls the mesh.Router for peers in the mesh.
@@ -19,10 +19,9 @@ type membership struct {
 	remc     chan<- uint64   // to configurator
 	shrunkc  chan<- struct{} // to calling context
 	quitc    chan struct{}
-	logger   mesh.Logger
 }
 
-func newMembership(router *mesh.Router, initial uint64set, minCount int, addc, remc chan<- uint64, shrunkc chan<- struct{}, logger mesh.Logger) *membership {
+func newMembership(router *mesh.Router, initial uint64set, minCount int, addc, remc chan<- uint64, shrunkc chan<- struct{}) *membership {
 	m := &membership{
 		router:   router,
 		minCount: minCount,
@@ -30,7 +29,6 @@ func newMembership(router *mesh.Router, initial uint64set, minCount int, addc, r
 		remc:     remc,
 		shrunkc:  shrunkc,
 		quitc:    make(chan struct{}),
-		logger:   logger,
 	}
 	go m.loop(initial)
 	return m
@@ -41,7 +39,7 @@ func (m *membership) stop() {
 }
 
 func (m *membership) loop(members uint64set) {
-	defer m.logger.Printf("membership: loop exit")
+	defer log.Debugln("membership: loop exit")
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -53,7 +51,7 @@ func (m *membership) loop(members uint64set) {
 		case <-ticker.C:
 			add, rem, members = diff(members, membershipSet(m.router))
 			if len(members) < m.minCount {
-				m.logger.Printf("membership: member count (%d) shrunk beneath minimum (%d)", len(members), m.minCount)
+				log.Info("membership: member count (%d) shrunk beneath minimum (%d)", len(members), m.minCount)
 				close(m.shrunkc)
 				return
 			}
@@ -119,17 +117,15 @@ type configurator struct {
 	confchangec chan<- raftpb.ConfChange // to raft.Node
 	entryc      <-chan raftpb.Entry      // from raft.Node
 	quitc       chan struct{}
-	logger      mesh.Logger
 }
 
-func newConfigurator(addc, remc <-chan uint64, confchangec chan<- raftpb.ConfChange, entryc <-chan raftpb.Entry, logger mesh.Logger) *configurator {
+func newConfigurator(addc, remc <-chan uint64, confchangec chan<- raftpb.ConfChange, entryc <-chan raftpb.Entry) *configurator {
 	c := &configurator{
 		addc:        addc,
 		remc:        remc,
 		confchangec: confchangec,
 		entryc:      entryc,
 		quitc:       make(chan struct{}),
-		logger:      logger,
 	}
 	go c.loop()
 	return c
@@ -140,7 +136,7 @@ func (c *configurator) stop() {
 }
 
 func (c *configurator) loop() {
-	defer c.logger.Printf("configurator: loop exit")
+	defer log.Debugln("configurator: loop exit")
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -154,9 +150,9 @@ func (c *configurator) loop() {
 		select {
 		case id := <-c.addc:
 			if pendingAdd.has(id) {
-				c.logger.Printf("configurator: recv add %x, was pending add already", id)
+				log.Info("configurator: recv add %x, was pending add already", id)
 			} else {
-				c.logger.Printf("configurator: recv add %x, now pending add", id)
+				log.Info("configurator: recv add %x, now pending add", id)
 				pendingAdd.add(id)
 				// We *must* wait before emitting a ConfChange.
 				// https://github.com/coreos/etcd/issues/4759
@@ -164,9 +160,9 @@ func (c *configurator) loop() {
 
 		case id := <-c.remc:
 			if pendingRem.has(id) {
-				c.logger.Printf("configurator: recv rem %x, was pending rem already", id)
+				log.Info("configurator: recv rem %x, was pending rem already", id)
 			} else {
-				c.logger.Printf("configurator: recv rem %x, now pending rem", id)
+				log.Info("configurator: recv rem %x, now pending rem", id)
 				pendingRem.add(id)
 				// We *must* wait before emitting a ConfChange.
 				// https://github.com/coreos/etcd/issues/4759
@@ -174,14 +170,14 @@ func (c *configurator) loop() {
 
 		case <-ticker.C:
 			for id := range pendingAdd {
-				c.logger.Printf("configurator: send ConfChangeAddNode %x", id)
+				log.Info("configurator: send ConfChangeAddNode %x", id)
 				c.confchangec <- raftpb.ConfChange{
 					Type:   raftpb.ConfChangeAddNode,
 					NodeID: id,
 				}
 			}
 			for id := range pendingRem {
-				c.logger.Printf("configurator: send ConfChangeRemoveNode %x", id)
+				log.Info("configurator: send ConfChangeRemoveNode %x", id)
 				c.confchangec <- raftpb.ConfChange{
 					Type:   raftpb.ConfChangeRemoveNode,
 					NodeID: id,
@@ -190,28 +186,28 @@ func (c *configurator) loop() {
 
 		case entry := <-c.entryc:
 			if entry.Type != raftpb.EntryConfChange {
-				c.logger.Printf("configurator: ignoring %s", entry.Type)
+				log.Info("configurator: ignoring %s", entry.Type)
 				continue
 			}
 			var cc raftpb.ConfChange
 			if err := cc.Unmarshal(entry.Data); err != nil {
-				c.logger.Printf("configurator: got invalid ConfChange (%v); ignoring", err)
+				log.Info("configurator: got invalid ConfChange (%v); ignoring", err)
 				continue
 			}
 			switch cc.Type {
 			case raftpb.ConfChangeAddNode:
 				if _, ok := pendingAdd[cc.NodeID]; ok {
-					c.logger.Printf("configurator: recv %s %x: was pending add, deleting", cc.Type, cc.NodeID)
+					log.Info("configurator: recv %s %x: was pending add, deleting", cc.Type, cc.NodeID)
 					delete(pendingAdd, cc.NodeID)
 				} else {
-					c.logger.Printf("configurator: recv %s %x: not pending add, ignoring", cc.Type, cc.NodeID)
+					log.Info("configurator: recv %s %x: not pending add, ignoring", cc.Type, cc.NodeID)
 				}
 			case raftpb.ConfChangeRemoveNode:
 				if _, ok := pendingRem[cc.NodeID]; ok {
-					c.logger.Printf("configurator: recv %s %x: was pending rem, deleting", cc.Type, cc.NodeID)
+					log.Info("configurator: recv %s %x: was pending rem, deleting", cc.Type, cc.NodeID)
 					delete(pendingRem, cc.NodeID)
 				} else {
-					c.logger.Printf("configurator: recv %s %x: not pending rem, ignoring", cc.Type, cc.NodeID)
+					log.Info("configurator: recv %s %x: not pending rem, ignoring", cc.Type, cc.NodeID)
 				}
 			}
 
